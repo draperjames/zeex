@@ -1,11 +1,10 @@
 import os
 from functools import partial
-
-from PySide import QtGui, QtCore
-from pandasqt.utils import superReadFileToFrameModel
-from pandasqt.views.CSVDialogs import _encodings, DelimiterSelectionWidget
-from pandasqt.views.MultiFileDialogs import DataFrameExportDialog, CSVImportDialog, DataFrameModel
-
+from icons import Icons
+from core.compat import QtGui, QtCore
+from qtpandas.views.CSVDialogs import _encodings, DelimiterSelectionWidget
+from qtpandas.views.MultiFileDialogs import DataFrameExportDialog, CSVImportDialog, DataFrameModel
+from qtpandas.models.DataFrameModel import DataFrameModel
 from core.models.filetree import FileTreeModel
 from core.ui.project.main_ui import Ui_ProjectWindow
 from core.utility.widgets import display_ok_msg
@@ -21,20 +20,31 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
     def __init__(self, settings_ini: str):
         QtGui.QMainWindow.__init__(self)
         self.setupUi(self)
-
-        self.SettingsDialog = SettingsDialog(filename=settings_ini)
+        self.icons = Icons()
+        self.SettingsDialog = SettingsDialog(settings=settings_ini)
         self.connect_window_title()
         self.connect_actions()
         self.connect_filetree()
+        self.connect_icons()
+        self.connect_settings_dialog()
         self.current_model = None
 
         # Temp caches
         self.df_models = {}
         self.df_windows = {}
 
+    @property
+    def project_directory(self):
+        return self.ProjectsTreeView.model().rootPath()
+
+    @property
+    def log_directory(self):
+        return os.path.join(self.project_directory, 'log')
+
     def connect_window_title(self):
         root_dir = self.SettingsDialog.rootDirectoryLineEdit.text()
         base_name = os.path.basename(root_dir)
+        self.SettingsDialog.setWindowTitle("{} - Settings".format(base_name))
         self.setWindowTitle("Project: {} - {}".format(base_name, root_dir.replace(base_name, "")))
 
     def connect_actions(self):
@@ -44,6 +54,16 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
         self.actionSave.triggered.connect(self.open_export_dialog)
         self.actionRemove.triggered.connect(self.remove_tree_selected_model)
 
+    def connect_icons(self):
+        self.setWindowIcon(self.icons['folder'])
+        self.actionNew.setIcon(self.icons['add'])
+        self.actionOpen.setIcon(self.icons['spreadsheet'])
+        self.actionPreferences.setIcon(self.icons['settings'])
+        self.actionRemove.setIcon(self.icons['delete'])
+        self.actionSave.setIcon(self.icons['save'])
+        self.SettingsDialog.setWindowIcon(self.icons['settings'])
+
+
     def connect_filetree(self):
         rootdir = self.SettingsDialog.rootDirectoryLineEdit.text()
         model = FileTreeModel(root_dir=rootdir)
@@ -52,21 +72,35 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
         self.ProjectsTreeView.setColumnWidth(0, 400)
 
     def connect_settings_dialog(self):
-        self.SettingsDialog.cloudProviderComboBox.setVisible(False)
-        self.SettingsDialog.cloudProviderLabel.setVisible(False)
-        self.SettingsDialog.rootDirectoryLabel.setVisible(False)
-        self.SettingsDialog.rootDirectoryLineEdit.setVisible(False)
+        #Adjust the box to remove irrelevant items.
+        self.SettingsDialog.cloudProviderComboBox.hide()
+        self.SettingsDialog.cloudProviderLabel.hide()
+        #self.SettingsDialog.rootDirectoryLabel.hide()
+        #self.SettingsDialog.rootDirectoryLineEdit.hide()
+        self.SettingsDialog.btnLogDirectory.hide()
+        self.SettingsDialog.btnRootDirectory.hide()
+        self.SettingsDialog.themeComboBox.hide()
+        self.SettingsDialog.themeLabel.hide()
+
+        # Override the log/root directory options
+        self.SettingsDialog.logDirectoryLineEdit.setText(self.log_directory)
+        self.SettingsDialog.rootDirectoryLineEdit.setText(self.project_directory)
+
+        self.SettingsDialog.logDirectoryLineEdit.setReadOnly(True)
+        self.SettingsDialog.rootDirectoryLineEdit.setReadOnly(True)
 
     def open_export_dialog(self):
         dialog = ProjectDataFrameExportDialog(parent=self,
                                               models=self.df_models)
 
         dialog.exported.connect(self._flush_export)
+        dialog.setWindowIcon(self.icons['export_generic'])
         dialog.exec_()
 
     def open_import_dialog(self):
         dialog = CSVImportDialog(self)
         dialog.load.connect(self.import_file)
+        dialog.setWindowIcon(self.icons['add'])
         dialog.exec_()
 
     def open_tableview_window(self, model: DataFrameModel = None):
@@ -101,7 +135,8 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
                 ext = os.path.splitext(file_path)[1].lower()
                 if ext in ['.txt', '.xlsx', '.csv']:
                     # Good to open, lets make/cache the model
-                    model = superReadFileToFrameModel(file_path)
+                    model = DataFrameModel()
+                    model.setDataFrameFromFile(file_path)
                     self.df_models[filename] = model
                     return self.df_models[filename]
         return None
@@ -177,18 +212,9 @@ class ProjectDataFrameExportDialog(DataFrameExportDialog):
         :param kwargs:
             models = {filename: df_model}
             parent = parent widget object
-
-
-
         """
         self._models = kwargs.pop('models', {})
         DataFrameExportDialog.__init__(self, *args, **kwargs)
-        parent = kwargs.get('parent', None)
-        if parent is not None:
-            try:
-                parent._set_theme(self)
-            except:
-                pass
 
     def _saveModel(self):
         sourcename = self._sourceNameComboBox.currentText()

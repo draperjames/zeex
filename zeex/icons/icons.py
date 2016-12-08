@@ -1,12 +1,13 @@
 import os
-from PySide import QtGui
+from core.compat import QtGui
 
 ICONS_DIRECTORY = os.path.dirname(__file__)
 ICON_NAMES = ['add', 'delete', 'download', 'export_csv',
               'export_generic', 'export_pdf','folder',
               'import','merge','redo','save','saveas', 'send','split',
               'suppress', 'undo', 'edit', 'settings', 'home','ok',
-              'cancel','delete_database']
+              'cancel','delete_database', 'lightning','add_column', 'add_row',
+              'delete_column', 'delete_row', 'filter', 'rename', 'spreadsheet']
 
 
 def path_for(name: str, directory: str = None,  verify=False):
