@@ -2,7 +2,27 @@
 """
 Created on Fri Dec  2 13:45:23 2016
 
-@author: Zeke
+MIT License
+
+Copyright (c) 2016 Zeke Barge
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 """
 from PySide import QtGui
 
@@ -15,7 +35,7 @@ def configureComboBox(box, options, default):
     return box
 
 
-def create_standard_item_model(columns: list = None):
+def create_standard_item_model(columns: list = None, editable=False, checkable=False):
         if columns is None:
             columns = []
         elif not isinstance(columns, list):
@@ -23,9 +43,8 @@ def create_standard_item_model(columns: list = None):
         model = QtGui.QStandardItemModel()
         for idx, col in enumerate(columns):
             item = QtGui.QStandardItem(col)
-            for order in ['asc', 'desc']:
-                oitem = QtGui.QStandardItem(order)
-                item.appendRow(oitem)
+            item.setEditable(editable)
+            item.setCheckable(checkable)
             model.appendRow(item)
         return model
 
@@ -40,10 +59,10 @@ def ensure_modeled(item: (str, list, QtGui.QStandardItemModel)):
     return item
 
 
-def display_ok_msg(parent, msg):
+def get_ok_msg_box(parent, msg):
     msgBox = QtGui.QMessageBox(parent)
     msgBox.setText(msg)
-    msgBox.show()
+    return msgBox
 
 
 def shift_grid_layout_down(layout):

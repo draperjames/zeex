@@ -1,14 +1,34 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Mar 17 00:03:14 2016
+MIT License
 
-@author: Zeke
+Copyright (c) 2016 Zeke Barge
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 """
 
 import os
 import datetime
 import pandas as pd
-
+import numpy as np
+from core.utility.ostools import path_incremented
 
 def force_int(integer):
     integer = ''.join(e for e in str(integer) if e.isdigit() or e is '.')
@@ -16,6 +36,73 @@ def force_int(integer):
         return int(integer)
     except:
         return 0
+
+
+def dataframe_chunks(df, chunksize=None):
+    """
+    Yields chunks from a dataframe as large as chunksize until
+    there are no records left.
+
+    :param df: (pd.DataFrame)
+    :param chunksize: (int, default None)
+        The max rows for each chunk.
+    :return: (pd.DataFrame)
+        Portions of the dataframe
+    """
+    if chunksize is None or chunksize <= 0 or chunksize >= df.index.size:
+        yield df
+    else:
+        while df.index.size > 0:
+            take = df.iloc[0:chunksize]
+            #df = df.loc[~df.index.isin(take.index), :]
+            df = df.iloc[chunksize:df.index.size]
+            yield take
+
+
+def dataframe_export(df, filepath, **kwargs):
+    """
+    A simple dataframe-export either to csv or excel.
+
+    :param df: (pd.DataFrame)
+        The dataframe to export
+    :param filepath: (str)
+        The filepath to export to.
+
+    :param kwargs: (pd.to_csv/pd.to_excel kwargs)
+        Look at pandas documentation for kwargs.
+    :return: None
+    """
+    filebase, ext = os.path.splitext(filepath)
+    ext = ext.lower()
+    if ext is '.xlsx':
+        df.to_excel(filepath, **kwargs)
+    elif ext in ['.txt','.csv']:
+        df.to_csv(filepath, **kwargs)
+    else:
+        raise NotImplementedError("Not sure how to export '{}' files.".format(ext))
+
+
+def dataframe_export_chunks(df, filepath, max_size=None, overwrite=True, **kwargs):
+    """
+    Exports a dataframe into chunks and returns the filepaths.
+
+    :param df: (pd.DataFrame)
+        The DataFrame to export in chunks.
+    :param filepath: (str)
+        The base filepath (will be incremented by 1 for each export)
+    :param max_size: (int, default None)
+        The max size of each dataframe to export.
+    :param kwargs: (pd.to_csv/pd.to_excel kwargs)
+        Look at pandas documentation for kwargs.
+    :return: list(filepaths exported)
+    """
+    paths = []
+    for chunk in dataframe_chunks(df, chunksize=max_size):
+        dataframe_export(chunk, filepath, **kwargs)
+        paths.append(filepath)
+        filepath = path_incremented(filepath, overwrite=overwrite)
+
+    return paths
 
 
 def superReadCSV(filepath, first_codec='utf8', usecols=None, 
@@ -98,10 +185,10 @@ def superReadText(filepath,**kwargs):
             
         else:
             found_sep = identify_sep(filepath)
-            print(found_sep)
             kwargs['sep'] = found_sep
             
     return superReadCSV(filepath,**kwargs)
+
 
 def superReadFile(filepath,**kwargs):
     """ 
@@ -109,30 +196,35 @@ def superReadFile(filepath,**kwargs):
     Uses superReadText (on .txt,.tsv, or .csv files) and returns a dataframe of the data.
     One function to read almost all types of data files.    
     """
-    if isinstance(filepath,pd.DataFrame): return filepath
-        
-    excels = ['.xlsx','.xls']
-    texts = ['.txt','.tsv','.csv']
+    if isinstance(filepath, pd.DataFrame):
+        return filepath
+
     ext = os.path.splitext(filepath)[1].lower()
     
-    if ext in excels:
+    if ext in ['.xlsx', '.xls']:
         return pd.read_excel(filepath,**kwargs)
-    elif ext in texts:
+
+    elif ext in ['.txt','.tsv','.csv']:
         return superReadText(filepath,**kwargs)
+
     else:
-        raise Exception("Unsupported filetype: {}\n Supported filetypes: {}".format(ext,excels + texts))
+        raise NotImplementedError("Unable to read '{}' files".format(ext))
     
   
-def dedupe_cols(frame):
+def dedupe_cols(df):
     """
-    Need to dedupe columns that have the same name.
+    Removes duplicate columns from a dataframe.
+    Only the first occurrence of each column label
+    is kept.
     """
-    cols = list(frame.columns)
-    for i, item in enumerate(frame.columns):
-        if item in frame.columns[:i]: 
-            cols[i] = "toDROP"
-    frame.columns = cols
-    return frame.drop("toDROP", 1, errors='ignore')
+    tag = "REMOVE_ME_PLEASE"
+    cols = list(df.columns)
+    for i, item in enumerate(df.columns):
+        if item in df.columns[:i]:
+            cols[i] = tag
+        df.columns = cols
+    return df.drop(tag, 1, errors='ignore')
+
 
 def rename_dupe_cols(cols):
     """Takes a list of strings and appends 2,3,4 etc to duplicates. Never appends a 0 or 1. 
@@ -149,17 +241,17 @@ def rename_dupe_cols(cols):
             
     fixed_cols = {}
     
-    for pos,col in positions.items():
+    for pos, col in positions.items():
         if counts[col] > 1:
             fix_cols = {pos: fld for pos,fld in positions.items() if fld == col}
             keys = [p for p in fix_cols.keys()]
             min_pos = min(keys)
             cnt = 1
-            for p,c in fix_cols.items():
+            for p, c in fix_cols.items():
                 if not p == min_pos:
                     cnt += 1
                     c = c + str(cnt)
-                    fixed_cols.update({p:c})
+                    fixed_cols.update({p: c})
                     
     positions.update(fixed_cols)
     
@@ -312,7 +404,30 @@ def get_frame_duplicates(df, id_label, unique_cols, sort_cols, ascending=None):
 def gather_frame_fields(df: pd.DataFrame, other_df: pd.DataFrame, index_label: str=None,
                         fields: list=None, copy_frames: bool=False,
                         append_missing: bool=True, **kwargs):
+    """
+    Updates a dataframe from another based on common index (or index_label) keys.
 
+    :param df: (pd.DataFrame)
+        The master dataframe to be updated
+    :param other_df: (pd.DataFrame)
+        The other dataframe to gather data from
+    :param index_label: (str, default None)
+        The name of the index column
+        This column will be set to the index of the dataFrame if it's not already.
+        If the index has no name, and the index_label is not in the frame's columns
+        The current index's name will be set to index_label.
+    :param fields: (list, default None)
+        An optional subset of field names to gather data from rather than updating from all
+        fields in the :param other_df.
+    :param copy_frames: (bool, default False)
+        True creates a copy of the data before doing any operations (safer?)
+    :param append_missing: (bool, default True)
+        True appends records to :param df from :param other_df with an index did not exist in :param df.
+    :param kwargs: pd.DataFrame.update(**kwargs)
+
+    :return: (pd.DataFrame)
+        :param df that has updated data from :param other_df
+    """
     if copy_frames:
         df = df.copy()
         other_df = other_df.copy()
@@ -321,9 +436,17 @@ def gather_frame_fields(df: pd.DataFrame, other_df: pd.DataFrame, index_label: s
         for frame in [df, other_df]:
             if frame.index.name is not index_label and index_label in frame.columns:
                 frame.set_index(index_label, drop=False, inplace=True)
+            else:
+                frame.index.name = index_label
 
     if fields:
         other_df_orig = other_df.copy()
+        if isinstance(fields, str):
+            fields = [fields]
+        elif not hasattr(fields, '__iter__'):
+            raise Exception("Fields must be iterable or a string.. not {}".format(type(fields)))
+        elif not isinstance(fields, list):
+            fields = list(fields)
         other_df = other_df.loc[:, fields]
     else:
         other_df_orig = other_df
@@ -337,8 +460,183 @@ def gather_frame_fields(df: pd.DataFrame, other_df: pd.DataFrame, index_label: s
     return df
 
 
+def series_is_datetime(series: pd.Series, check_num: int=5, dropna: bool=True):
+    """
+    Checks random rows in a Series comparing rows that coerce to datetime.
+    :param series:
+    :param check_num:
+    :param dropna:
+    :return:
+    """
+    if dropna:
+        series = series.dropna(axis=0)
+    got, lost = 0, 0
+    size = (check_num if series.index.size > check_num else series.index.size)
+
+    if size > 0:
+        checks = np.random.randint(0, high=series.index.size, size=size)
+        for x in series[checks].tolist():
+            try:
+                x = pd.Timestamp(x)
+                if pd.notnull(x):
+                    got += 1
+            except (ValueError, OverflowError):
+                lost += 1
+
+    return got > lost
 
 
+def series_to_datetime(series, check_num: int=5, dropna: bool=True, **kwargs):
+    """
+
+    :param series: (pd.Series)
+        The series object to modify.
+    :param check_num: (int, default 10)
+        The max number of rows to test for coerceable datetime values.
+    :param dropna: (bool, default True)
+        True drops na values from the series before checking random rows.
+    :param kwargs: pd.to_datetime(**kwargs)
+        errors: defaults to 'coerce'
+    :return: (pd.Series)
+        With dtype converted to a datetime if possible.
+    """
+    if series_is_datetime(series, check_num=check_num, dropna=dropna):
+        kwargs['errors'] = kwargs.get('errors', 'coerce')
+        series = pd.to_datetime(series, **kwargs)
+    return series
+
+
+def dataframe_to_datetime(df, dtypes=['object'], check_num:int = 5, dropna: bool=True, raise_on_error=False, **kwargs):
+    """
+    Scans columns in a dataframe looking for columns to convert into a DateTime.
+
+    :param df: (pd.DataFrame)
+        The dataframe to modify.
+    :param dtypes: (list, default ['object'])
+        A list of data types to check.
+    :param check_num: (int, default 10)
+        The max number of rows to test for coerceable datetime values.
+    :param dropna: (bool, default True)
+        True drops na values from the series before checking random rows.
+    :param raise_on_error: (bool, default False)
+        True raises ValueError or OverflowError if any occur doing the conversion.
+    :param kwargs: pd.to_datetime(**kwargs)
+        errors: defaults to 'coerce'
+    :return: (pd.DataFrame)
+        DataFrame with found datetime columns converted.
+    """
+    for column in df.columns:
+        dtype = str(df[column].dtype)
+        if dtype in dtypes:
+            try:
+                converted = series_to_datetime(df.loc[:, column], check_num=check_num, dropna=dropna, **kwargs)
+                df.loc[:, column] = converted
+            except (ValueError, OverflowError):
+                if raise_on_error:
+                    raise
+    return df
+
+
+def dataframe_split_to_files(df: pd.DataFrame, source_path: str, split_on: list,
+                             fields: list=None, dropna: bool=False, dest_dirname:str =None,
+                             chunksize: int=None, **kwargs):
+    """
+    Somewhat intelligently splits and exports a DataFrame into separate files based on the given parameters.
+
+    :param df: (pd.DataFrame)
+        The dataframe to split
+    :param source_path: (str)
+        A filepath to use as the base filename/extension for exports
+        (and directory name if dest_dirname is None)
+    :param split_on: (list)
+        The list of column(s) to split the dataframe on.
+        Each value in a split_on column will be paired with a value from
+        the other column(s) (if any) and will
+    :param fields: (list, default None)
+        A subset of fields to export in each split.
+        If None, all fields will be exported.
+    :param dropna: (bool, default False)
+        NA values are either dropped or filled with the word 'blank'
+        which will show up in the filename.
+    :param dest_dirname: (str, default None)
+        A destination directory to store the splits.
+        If None is specified, the source_path's directory will be used.
+    :param chunksize: (int, default None)
+        The max # of records to export per file.
+    :return: list(exported filepaths)
+    """
+    source_base, source_ext = os.path.splitext(os.path.basename(source_path))
+    if dest_dirname is not None:
+        dirname = dest_dirname
+        if not os.path.exists(dirname):
+            os.mkdir(dirname)
+    else:
+        dirname = os.path.dirname(source_path)
+
+    if not fields:
+        fields = df.columns.tolist()
+
+    if dropna:
+        if not split_on:
+            subset = None
+        else:
+            subset = split_on
+        df.dropna(how='any', subset=subset, inplace=True)
+    elif split_on:
+        [df.loc[:, c].fillna('blank', inplace=True) for c in split_on]
+
+    if not split_on:
+        df = df.loc[:, fields]
+        file_path = os.path.join(dirname, source_base + source_ext)
+        exported_paths = dataframe_export_chunks(df, file_path, max_size=chunksize, **kwargs)
+
+    else:
+
+        combos = {c: list(df.loc[:, c].unique()) for c in split_on}
+        keys, exported_paths = [], []
+
+        # TODO: This feels like it should be some sort of recursive function...
+        # Learn this shit and make it split better using all available options
+        # From the combos.
+        for col, values in combos.items():
+            other_cols = [c for c in combos.keys() if c != col]
+            if other_cols:
+                for val in values:
+                    for other_col in other_cols:
+
+                        other_vals = combos[other_col]
+                        for other_val in other_vals:
+
+                            key = ''.join(list(sorted([str(val), str(other_val)])))
+                            if key not in keys:
+
+                                mask = ((df.loc[:, col] == val) & (df.loc[:, other_col] == other_val))
+                                df_part = df.loc[mask, fields]
+                                if not df_part.empty:
+
+                                    name_str = "{}_{}_{}_{}".format(str(col)[:5], val, str(other_col)[:5], other_val)
+                                    name_str = ''.join(e for e in str(name_str)
+                                                       if e.isalnum() or e == '_').strip().lower()
+                                    name_str = "{}_{}{}".format(source_base, name_str, source_ext)
+                                    out_path = os.path.join(dirname, name_str)
+
+                                    paths = dataframe_export_chunks(df_part, out_path, max_size=chunksize, **kwargs)
+                                    keys.append(key)
+                                    exported_paths.extend(paths)
+            else:
+                for val in values:
+
+                    df_part = df.loc[df[col] == val, fields]
+                    if not df_part.empty:
+
+                        val = ''.join(e for e in str(val) if e.isalnum() or e == '_').strip().lower()
+                        name_str = "{}_{}{}".format(source_base, val, source_ext)
+                        out_path = os.path.join(dirname, name_str)
+
+                        paths = dataframe_export_chunks(df_part, out_path, max_size=chunksize, **kwargs)
+                        exported_paths.extend(paths)
+
+    return exported_paths
 
 
 

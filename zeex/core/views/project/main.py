@@ -1,3 +1,27 @@
+"""
+MIT License
+
+Copyright (c) 2016 Zeke Barge
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
 import os
 from icons import Icons
 from functools import partial
@@ -11,8 +35,9 @@ from core.views.actions.export import DataFrameModelExportDialog
 from core.views.actions.merge_purge import MergePurgeDialog
 from core.views.file import FileTableWindow
 from core.views.settings import SettingsDialog
-from core.utility.widgets import display_ok_msg, create_standard_item_model
+from core.utility.widgets import get_ok_msg_box, create_standard_item_model
 from core.utility.collection import SettingsINI
+
 
 
 class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
@@ -31,9 +56,13 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
     signalModelOpened = QtCore.Signal(str)
     signalModelDestroyed = QtCore.Signal(str)
 
-    def __init__(self, settings_ini: (str, SettingsINI)):
+    def __init__(self, settings_ini: (str, SettingsINI), parent=None):
+        """
+        :param settings_ini: (str, SettingsINI)
+            can be a settings_ini file path or configured SettingsINI object.
+        """
         self.df_manager = DataFrameModelManager()
-        QtGui.QMainWindow.__init__(self)
+        QtGui.QMainWindow.__init__(self, parent=parent)
         self.setupUi(self)
         self.icons = Icons()
         self.dialog_settings = SettingsDialog(settings=settings_ini)
@@ -88,7 +117,7 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
         self.actionNew.triggered.connect(self.open_import_dialog)
         self.actionOpen.triggered.connect(self.open_tableview_window)
         self.actionSave.triggered.connect(self.open_export_dialog)
-        self.actionRemove.triggered.connect(self.remove_tree_selected_model)
+        self.actionRemove.triggered.connect(self.remove_tree_selected_path)
         self.actionMerge_Purge.triggered.connect(self.open_merge_purge_dialog)
 
     def connect_icons(self):
@@ -181,7 +210,9 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
             model = self.get_tree_selected_model()
             if model is None:
                 # No, not sure why this was called..
-                return display_ok_msg(self, "No model available to open.")
+                #box = get_ok_msg_box(self, "No model available to open.")
+                #box.show()
+                pass
 
         name = os.path.basename(model.filePath)
 
@@ -195,17 +226,12 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
     def open_merge_purge_dialog(self, model: DataFrameModel=None):
         if model is None:
             model = self.get_tree_selected_model()
-        df = model.dataFrame()
-        file_base, ext = os.path.splitext(model.filePath)
-        dedupe_model = create_standard_item_model(df.columns)
-        sort_model = create_standard_item_model(df.columns)
-
-        self.dialog_merge_purge.set_handler_dedupe_on(column_model=dedupe_model, default_model=None)
-        self.dialog_merge_purge.set_handler_sort_on(column_model=sort_model, default_model=None)
-        self.dialog_merge_purge.configure(source_path=model.filePath, dest_path=file_base + "_merged" + ext)
+        current_model = self.dialog_merge_purge.source_model
+        if current_model is None or current_model.filePath is not model.filePath:
+            self.dialog_merge_purge.set_source_model(model=model, configure=True)
         self.dialog_merge_purge.show()
 
-    def get_tree_selected_model(self) -> (DataFrameModel, None):
+    def get_tree_selected_model(self, raise_on_error=True) -> (DataFrameModel, None):
         """
         Returns a DataFrameModel based on the filepath selected
         in the ProjectMainWindow.ProjectsTreeView.
@@ -219,13 +245,22 @@ class ProjectMainWindow(QtGui.QMainWindow, Ui_ProjectWindow):
             return self.df_manager.read_file(file_path)
         return None
 
-    def remove_tree_selected_model(self):
+    def get_tree_selected_path(self):
+        selected = self.ProjectsTreeView.selectedIndexes()
+        if selected:
+            idx = selected[0]
+            return self.ProjectsTreeView.model().filePath(idx)
+        return None
+
+    def remove_tree_selected_path(self):
         #TODO: need to emit a signal here.
-        model = self.get_tree_selected_model()
-        if model is not None:
-            os.remove(model.filePath)
+        filename = self.get_tree_selected_path()
+        if filename is not None:
+            os.remove(filename)
         else:
-            display_ok_msg(self, "Unable to remove file.")
+            #box = get_ok_msg_box(self, "No file selected.")
+            #box.show()
+            pass
 
     def open_tableview_current(self, model: DataFrameModel=None):
         """

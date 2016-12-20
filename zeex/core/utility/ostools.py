@@ -1,4 +1,6 @@
+# -*- coding: utf-8 -*-
 """
+Created on Thu Mar 17 00:03:14 2016
 MIT License
 
 Copyright (c) 2016 Zeke Barge
@@ -21,16 +23,34 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-from functools import partial
-from core.compat import QtGui, QtCore
-from core.views.file import DataFrameModel
+import os
 
+def path_incremented(p, overwrite=False):
+    """
+    Increments a file path so you don't overwrite
+    an existing file (unless you choose to).
+    :param p: (str)
+        The file path to possibly increment
+    :param overwrite: (str)
+        True will just increment once and return the path.
+        False will keep incrementing until the path is available
+    :return:
+        The original file path if it doesn't exist.
+        The file path incremented by 1 until it doesn't exist.
+    """
+    dirname = os.path.dirname(p)
+    while os.path.exists(p):
+        name = os.path.basename(p)
+        name, ext = os.path.splitext(name)
 
-class AbstractAction(object):
-    signalActionBegin = QtCore.Signal(str)
-    signalActionError = QtCore.Signal(str)
-    signalActionEnd = QtCore.Signal(DataFrameModel)
-
-    def __init__(self, model=None):
-        pass
+        try:
+            val = ''.join(e for e in name if e.isdigit())
+            count = int(val) + 1
+            name = name.replace(val, str(count))
+        except ValueError:
+            name = "{}{}".format(name, 2)
+        p = os.path.join(dirname, name + ext)
+        if overwrite is True:
+            break
+    return p
 

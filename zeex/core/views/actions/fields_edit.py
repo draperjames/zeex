@@ -1,10 +1,34 @@
+"""
+MIT License
+
+Copyright (c) 2016 Zeke Barge
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
 import os
 from qtpandas.utils import superReadFile
 import pandas as pd
 from core.ui.actions.fields_edit_ui import Ui_FieldsEditDialog
 from core.compat import QtGui, QtCore
 from core.models.fieldnames import FieldModel
-
+from core.utility.pandatools import dataframe_to_datetime
+from qtpandas import DataFrameModel
 
 CASE_MAP = {'lower': str.lower,
             'upper': str.upper,
@@ -25,7 +49,7 @@ class FieldsEditDialog(QtGui.QDialog, Ui_FieldsEditDialog):
         dialog = FieldsEditDialog(DataFrameModel)
         dialog.show()
     """
-    def __init__(self, model, *args, **kwargs):
+    def __init__(self, model: DataFrameModel, *args, **kwargs):
 
         QtGui.QDialog.__init__(self, *args, **kwargs)
         self.setupUi(self)
@@ -34,20 +58,38 @@ class FieldsEditDialog(QtGui.QDialog, Ui_FieldsEditDialog):
         self.configure()
 
     def configure(self):
-        df = self.dfmodel._dataFrame
-        for field in df.columns:
-            self.fmodel.set_field(field, field, dtype=df[field].dtype)
+        self.update_fields_model()
         self.tableView.setModel(self.fmodel)
+        self.dfmodel.dataChanged.connect(self.update_fields_model)
         self.btnReset.clicked.connect(self.fmodel.reset_to_original)
         self.btnSaveFile.clicked.connect(self.apply_changes)
         self.btnSetCase.clicked.connect(self.apply_case)
         self.btnLoadTemplate.clicked.connect(self.import_template)
         self.btnExportTemplate.clicked.connect(self.export_template)
+        self.btnParseDates.clicked.connect(self.parse_dates)
         self.setWindowTitle("Edit Fields - {}".format(os.path.basename(self.dfmodel.filePath)))
 
     def apply_case(self):
         value = self.setCaseComboBox.currentText()
         self.fmodel.apply_new_name(CASE_MAP[value.lower()])
+
+    def update_fields_model(self, *args, **kwargs):
+        """
+        Updates the fields model - designed to connect
+        to propogate changes off the dataFrameModel
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        cur_ct = self.fmodel.rowCount()
+        df = self.dfmodel.dataFrame()
+        if cur_ct > 0:
+            for i in range(self.fmodel.rowCount()):
+                item = self.fmodel.item(i, 0)
+                if item and item.text() not in df.columns:
+                    self.fmodel.takeRow(i)
+        for col in df.columns:
+            self.fmodel.set_field(col, dtype=df[col].dtype)
 
     def apply_template(self, df, columns=['old', 'new', 'dtype']):
         df.columns = columns #Make or break this frame.
@@ -67,6 +109,21 @@ class FieldsEditDialog(QtGui.QDialog, Ui_FieldsEditDialog):
             df = df.loc[:, def_cols]
             columns = def_cols
         self.apply_template(df, columns=columns)
+
+    def parse_dates(self):
+        df = self.dfmodel.dataFrame()
+        dt_model = self.dfmodel.columnDtypeModel()
+        dt_model.setEditable(True)
+        all_cols = df.columns.tolist()
+        new_df = df.copy()
+        new_df = dataframe_to_datetime(new_df)
+        new_cols = [c for c in all_cols
+                    if new_df[c].dtype != df[c].dtype
+                    and 'date' in str(new_df[c].dtype)]
+        if new_cols:
+            self.dfmodel.setDataFrame(new_df, filePath=self.dfmodel.filePath)
+            for n in new_cols:
+                self.fmodel.set_field(n, dtype=new_df[n].dtype)
 
     def export_template(self, filename=None, **kwargs):
         if filename is None:

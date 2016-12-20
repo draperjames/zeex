@@ -1,3 +1,27 @@
+"""
+MIT License
+
+Copyright (c) 2016 Zeke Barge
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
 import os
 from functools import partial
 from core.compat import QtGui, QtCore
@@ -10,6 +34,7 @@ from core.views.file import FileTableWindow
 from core.views.actions.map_grid import MapGridDialog
 from core.ctrls.dataframe import DataFrameModelManager
 from core.utility.widgets import create_standard_item_model
+from core.utility.pandatools import gather_frame_fields
 
 
 class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
@@ -32,6 +57,8 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
         self.sortAscHandler = None
         self.sortOnHandler = None
         self.dedupeOnHandler = None
+        self.uniqueFieldsHandler = None
+        self.gatherFieldsHandler = None
 
     def configure(self, source_path=None, dest_path=None) -> bool:
 
@@ -73,6 +100,9 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
         if configure:
             self.configure(source_path=self.source_model.filePath)
             self.set_push_grid_handlers()
+            combo_model = create_standard_item_model(model.dataFrame().columns.tolist(),
+                                                     editable=False, checkable=True)
+            self.primaryKeyComboBox.setModel(combo_model)
 
     def set_line_edit_paths(self, source_path, dest_path=None):
         if dest_path is None:
@@ -83,7 +113,7 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
         self.destPathLineEdit.setText(dest_path)
 
     def set_push_grid_handlers(self, column_model=None, sorton_model=None, sortasc_model=None,
-                               dedupe_model=None):
+                               dedupe_model=None, gather_model=None, unique_model=None):
         """
         Sets all default push grid handlers for the dialog.
 
@@ -97,14 +127,15 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
         if column_model is None:
             column_model = self.get_source_columns_model()
 
-        self.set_handler_sort_on(column_model, default_model=sorton_model)
-
+        self.set_handler_sort_on(column_model=None, default_model=sorton_model)
         self.set_handler_sort_asc(default_model=sortasc_model)
-
-        self.set_handler_dedupe_on(column_model, default_model=dedupe_model)
+        self.set_handler_dedupe_on(column_model=None, default_model=dedupe_model)
+        self.set_handler_gather_fields(column_model=None, default_model=gather_model)
+        self.set_handler_unique_fields(column_model=None, default_model=unique_model)
 
     def set_handler_sort_on(self, column_model=None, default_model=None):
-
+        if column_model is None:
+            column_model = self.get_source_columns_model()
         self.sortOnHandler = PushGridHandler(left_model=column_model, left_view=self.sortOnLeftView,
                                              left_button=self.sortOnLeftButton,
                                              left_delete=True, right_model=default_model,
@@ -112,7 +143,7 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
                                              right_button=self.sortOnRightButton)
 
     def set_handler_sort_asc(self, default_model=None):
-        if self.sortAscHandler is None:
+        if self.sortAscHandler is None or default_model is not None:
             sort_asc = QtGui.QStandardItemModel()
             sort_asc.appendRow(QtGui.QStandardItem('True'))
             sort_asc.appendRow(QtGui.QStandardItem('False'))
@@ -123,11 +154,33 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
                                                   right_button=self.sortAscRightButton)
 
     def set_handler_dedupe_on(self, column_model=None, default_model=None):
+        if column_model is None:
+            column_model = self.get_source_columns_model()
         self.dedupeOnHandler = PushGridHandler(left_model=column_model, left_view=self.dedupeOnLeftView,
                                                left_button=self.dedupeOnLeftButton,
                                                left_delete=True, right_model=default_model,
                                                right_view=self.dedupeOnRightView,
                                                right_button=self.dedupeOnRightButton)
+
+    def set_handler_gather_fields(self, column_model=None, default_model=None):
+        if column_model is None:
+            column_model = self.get_source_columns_model()
+        self.gatherFieldsHandler = PushGridHandler(left_model=column_model,
+                                                   left_view=self.gatherFieldsListViewLeft,
+                                                   left_button=self.gatherFieldsButtonLeft,
+                                                   left_delete=True, right_model=default_model,
+                                                   right_view=self.gatherFieldsListViewRight,
+                                                   right_button=self.gatherFieldsButtonRight)
+
+    def set_handler_unique_fields(self, column_model=None, default_model=None):
+        if column_model is None:
+            column_model = self.get_source_columns_model()
+        self.uniqueFieldsHandler = PushGridHandler(left_model=column_model,
+                                                   left_view=self.uniqueFieldsListViewLeft,
+                                                   left_button=self.uniqueFieldsPushButtonLeft,
+                                                   left_delete=True, right_model=default_model,
+                                                   right_view=self.uniqueFieldsListViewRight,
+                                                   right_button=self.uniqueFieldsPushButtonRight)
 
     def get_source_columns_model(self ,raise_on_error=True):
         if self.source_model is None:
@@ -140,17 +193,23 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
 
         return create_standard_item_model(columns)
 
-    def open_file(self, file_names=None, model_signal=None):
+    def open_file(self, file_names: list=None, model_signal=None):
         if file_names is None:
-            file_names = QtGui.QFileDialog.getOpenFileNames()
-        if file_names:
-            file_names = file_names[0]
+            file_names = QtGui.QFileDialog.getOpenFileNames(parent=self)
+            #file_names = list(file_names[0])
+
+        if isinstance(file_names, str):
+            file_names = list(file_names)
+
+        assert hasattr(file_names, "__iter__"), "file_names is not iterable"
+
         for f in file_names:
             try:
                 if os.path.exists(f):
-                    model = self.df_manager.read_file(f)
+                    self.df_manager.read_file(f)
                     if model_signal is not None:
                         model_signal.emit(f)
+                        print("Emitted signal: {}".format(f))
             except Exception as e:
                 print(e)
 
@@ -159,7 +218,7 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
         model = self.df_manager.get_model(file_path)
         model.enableEditing(True)
         self._merge_files.update({file_path:model})
-        self._merge_view_model.appendDataFrameModel(model)
+        self._merge_view_model.append_df_model(model)
         self.mergeFileTable.setColumnWidth(0, 500)
 
     @QtCore.Slot(str)
@@ -167,7 +226,7 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
         model = self.df_manager.get_model(file_path)
         model.enableEditing(True)
         self._suppress_files.update({file_path:model})
-        self._suppress_view_model.appendDataFrameModel(model)
+        self._suppress_view_model.append_df_model(model)
         self.sFileTable.setColumnWidth(0, 500)
 
     def remove_file(self, view, indexes=None):
@@ -218,6 +277,9 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
             self._field_map_grids[view_item_text] = fmap
             self._field_map_grids[view_item_text].show()
 
+    def get_map_grid(self, file_path):
+        return self._field_map_grids.get(file_path, None)
+
     def open_edit_file_window(self, view, models):
         """
         Connects a DataFrameModel selected in the view
@@ -257,10 +319,13 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
         source_df = self.source_model.dataFrame().copy()
         source_df.loc[:, 'ORIG_IDXER'] = source_df.index
         source_size = source_df.index.size
+        index_label = self.primaryKeyComboBox.currentText()
 
         sort_on = self.sortOnHandler.get_model_list(left=False)
         ascending = self.sortAscHandler.get_model_list(left=False)
         dedupe_on = self.dedupeOnHandler.get_model_list(left=False)
+        gather_fields = self.gatherFieldsHandler.get_model_list(left=False)
+        overwrite_existing = self.gatherFieldsOverWriteCheckBox.isChecked()
 
         # Make sure ascending/sort_on lists are equal.
         while len(sort_on) < len(ascending):
@@ -274,9 +339,15 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
         for file_path, merge_model in self._merge_files.items():
             pre_size = source_df.index.size
             other_df = merge_model.dataFrame()
-            source_df = pd.concat([source_df, other_df])
+            if gather_fields:
+                assert index_label in other_df.columns, "DataFrameModel for {} missing column {}".format(
+                                                         merge_model.filePath, index_label)
+                source_df = gather_frame_fields(source_df, other_df, index_label=index_label,
+                                                fields=gather_fields, copy_frames=True,
+                                                append_missing=True, overwrite=overwrite_existing)
+            else:
+                source_df = pd.concat([source_df, other_df])
             merged_results.update({merge_model.filePath: source_df.index.size - pre_size})
-
         # Get all suppression models and suppress.
         for file_path, suppress_model in self._suppress_files.items():
             map_dict = self._field_map_data.get(file_path, {})
@@ -292,7 +363,8 @@ class MergePurgeDialog(QtGui.QDialog, Ui_MergePurgeDialog):
                 key_cols = dedupe_on.copy()
                 missing = [x for x in key_cols if x not in sframe.columns]
                 if missing:
-                    raise KeyError("Suppression file {} must have a field mapping or have the dedupe column labels, it has neither!.".format(
+                    raise KeyError("Suppression file {} must have a field mapping or \
+                                    have the dedupe column labels, it has neither!.".format(
                                     suppress_model.filePath))
 
             sframe = sframe.loc[:, key_cols].drop_duplicates(key_cols)
